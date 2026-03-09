@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { initZoomClient } from '@/lib/zoom';
 import type ZoomVideo from '@zoom/videosdk';
 import VideoGrid from './VideoGrid';
 import VideoControls from './VideoControls';
+import ChatPanel, { type ChatMessage } from './ChatPanel';
 
 interface VideoConferenceProps {
   sessionName: string; // Session name/topic (must match tpc in JWT token)
@@ -29,6 +30,10 @@ export default function VideoConference({
   const [isJoined, setIsJoined] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [chatClient, setChatClient] = useState<any>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const videoContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -111,6 +116,47 @@ export default function VideoConference({
           }
         });
 
+        // Initialize chat client
+        try {
+          const chat = zoomClient.getChatClient();
+          setChatClient(chat);
+
+          const history = chat.getHistory();
+          if (history?.length) {
+            setChatMessages(history);
+          }
+
+          zoomClient.on('chat-on-message', (payload: any) => {
+            if (mounted) {
+              setChatMessages((prev) => {
+                // Check for duplicates by ID, or by message content + sender + timestamp
+                const isDuplicate = prev.some((m: ChatMessage) => {
+                  if (payload.id && m.id === payload.id) return true;
+                  // Also check by content, sender, and timestamp (within 1 second) to catch duplicates
+                  if (
+                    m.message === payload.message &&
+                    m.sender?.userId === payload.sender?.userId &&
+                    Math.abs(m.timestamp - payload.timestamp) < 1000
+                  ) {
+                    return true;
+                  }
+                  return false;
+                });
+                if (isDuplicate) return prev;
+                return [...prev, payload];
+              });
+              setIsChatOpen((open) => {
+                if (!open) {
+                  setUnreadCount((c) => c + 1);
+                }
+                return open;
+              });
+            }
+          });
+        } catch (chatErr) {
+          console.warn('Could not initialize chat client:', chatErr);
+        }
+
         setIsLoading(false);
       } catch (err: any) {
         console.error('Error joining session:', err);
@@ -169,6 +215,31 @@ export default function VideoConference({
     }
   };
 
+  const handleSendMessage = useCallback(
+    async (text: string) => {
+      if (!chatClient) return;
+      // Don't add the message to state here - let the 'chat-on-message' event handle it
+      // This prevents duplicate messages (one from sendToAll result, one from event)
+      await chatClient.sendToAll(text);
+    },
+    [chatClient]
+  );
+
+  const toggleChat = useCallback(() => {
+    setIsChatOpen((prev) => {
+      if (!prev) setUnreadCount(0);
+      return !prev;
+    });
+  }, []);
+
+  // Get current user ID for chat
+  let currentUserId = 0;
+  try {
+    currentUserId = (client as any)?.getSessionInfo?.()?.userId ?? 0;
+  } catch {
+    // not ready
+  }
+
   if (isLoading) {
     return (
       <div className='flex items-center justify-center h-screen'>
@@ -202,18 +273,38 @@ export default function VideoConference({
 
   return (
     <div className='flex flex-col h-screen bg-gray-900'>
-      <div className='flex-1 overflow-hidden' ref={videoContainerRef}>
-        <VideoGrid
-          stream={stream}
-          participants={participants}
-          client={client}
-        />
+      <div className='flex-1 overflow-hidden flex'>
+        <div
+          className={`${
+            isChatOpen ? 'w-[70%]' : 'w-full'
+          } transition-all duration-300`}
+          ref={videoContainerRef}
+        >
+          <VideoGrid
+            stream={stream}
+            participants={participants}
+            client={client}
+          />
+        </div>
+        {isChatOpen && (
+          <div className='w-[30%] min-w-[280px]'>
+            <ChatPanel
+              messages={chatMessages}
+              currentUserId={currentUserId}
+              onSendMessage={handleSendMessage}
+              onClose={toggleChat}
+            />
+          </div>
+        )}
       </div>
       <VideoControls
         stream={stream}
         onToggleVideo={toggleVideo}
         onToggleAudio={toggleAudio}
         onLeave={handleLeave}
+        onToggleChat={toggleChat}
+        isChatOpen={isChatOpen}
+        unreadCount={unreadCount}
         userRole={userRole}
       />
     </div>

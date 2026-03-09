@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Zoom Video SDK custom elements: <video-player-container> and <video-player>.
+   The SDK's attachVideo() returns a <video-player> that must live inside
+   a <video-player-container>. Both need explicit sizing. */
+video-player-container {
+  display: block;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+video-player-container .video-tile {
+  width: 100%;
+  height: 100%;
+}
+
+video-player-container video-player {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+video-player-container video-player video,
+video-player-container video-player canvas,
+video-player-container video,
+video-player-container canvas {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+}

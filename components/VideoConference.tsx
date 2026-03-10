@@ -47,6 +47,11 @@ export default function VideoConference({
   const [lttClient, setLttClient] = useState<any>(null);
   const [captionMessages, setCaptionMessages] = useState<CaptionMessage[]>([]);
   const [isCaptionsOpen, setIsCaptionsOpen] = useState(false);
+  const [aiClient, setAiClient] = useState<any>(null);
+  const [summaryStatus, setSummaryStatus] = useState<
+    'Start' | 'Paused' | 'Stopped' | 'Default'
+  >('Default');
+  const [isSummaryEnabled, setIsSummaryEnabled] = useState(false);
   const [activeShareUserId, setActiveShareUserId] = useState<number | null>(
     null
   );
@@ -268,6 +273,27 @@ export default function VideoConference({
           );
         }
 
+        // Initialize AI client (smart summary & meeting query)
+        try {
+          const ai = (zoomClient as any).getAIClient();
+          setAiClient(ai);
+          setIsSummaryEnabled(ai.isSummaryEnabled());
+
+          // Sync initial status
+          const status = ai.getSummaryStatus();
+          if (status) setSummaryStatus(status);
+
+          zoomClient.on('summary-status-change', (payload: any) => {
+            if (!mounted) return;
+            console.log('summary-status-change:', payload);
+            if (payload.status) {
+              setSummaryStatus(payload.status);
+            }
+          });
+        } catch (aiErr) {
+          console.warn('Could not initialize AI client:', aiErr);
+        }
+
         setIsLoading(false);
       } catch (err: any) {
         console.error('Error joining session:', err);
@@ -420,6 +446,22 @@ export default function VideoConference({
   const toggleCaptions = useCallback(() => {
     setIsCaptionsOpen((prev) => !prev);
   }, []);
+
+  // ─── AI Summary actions ───
+  const toggleSummary = useCallback(async () => {
+    if (!aiClient) return;
+    try {
+      if (summaryStatus === 'Start') {
+        await aiClient.stopSummary();
+      } else {
+        await aiClient.startSummary();
+      }
+    } catch (err: any) {
+      console.error('Error toggling AI summary:', err);
+      const reason = err?.reason || err?.message || 'Unknown error';
+      alert(`AI Summary error: ${reason}`);
+    }
+  }, [aiClient, summaryStatus]);
 
   // ─── Host / Manager actions ───
   const handleMuteUser = useCallback(
@@ -582,6 +624,14 @@ export default function VideoConference({
             </div>
           )}
 
+          {/* AI Summary banner */}
+          {summaryStatus === 'Start' && (
+            <div className='bg-purple-700 text-white text-center py-1.5 text-sm font-medium flex items-center justify-center gap-3'>
+              <span className='inline-block w-2 h-2 bg-purple-300 rounded-full animate-pulse' />
+              AI Summary Active
+            </div>
+          )}
+
           {/* Screen share view — shown when someone else is sharing */}
           {activeShareUserId && activeShareUserId !== currentUserId && (
             <div className='flex-1 min-h-0 relative'>
@@ -707,6 +757,9 @@ export default function VideoConference({
         isHost={amHost}
         onToggleCaptions={toggleCaptions}
         isCaptionsOpen={isCaptionsOpen}
+        onToggleSummary={toggleSummary}
+        summaryStatus={summaryStatus}
+        isSummaryEnabled={isSummaryEnabled}
       />
     </div>
   );

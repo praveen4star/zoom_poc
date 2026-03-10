@@ -8,6 +8,7 @@ import VideoControls from './VideoControls';
 import ChatPanel, { type ChatMessage } from './ChatPanel';
 import ScreenShareView from './ScreenShareView';
 import ParticipantPanel from './ParticipantPanel';
+import CaptionPanel, { type CaptionMessage } from './CaptionPanel';
 
 interface VideoConferenceProps {
   sessionName: string; // Session name/topic (must match tpc in JWT token)
@@ -43,6 +44,9 @@ export default function VideoConference({
   >('Stopped');
   const [recordingClient, setRecordingClient] = useState<any>(null);
   const [canRecord, setCanRecord] = useState(false);
+  const [lttClient, setLttClient] = useState<any>(null);
+  const [captionMessages, setCaptionMessages] = useState<CaptionMessage[]>([]);
+  const [isCaptionsOpen, setIsCaptionsOpen] = useState(false);
   const [activeShareUserId, setActiveShareUserId] = useState<number | null>(
     null
   );
@@ -222,6 +226,48 @@ export default function VideoConference({
           console.warn('Could not initialize recording client:', recErr);
         }
 
+        // Initialize live transcription / translation client
+        try {
+          const ltt = zoomClient.getLiveTranscriptionClient();
+          setLttClient(ltt);
+
+          // Listen for transcription / translation messages
+          zoomClient.on('caption-message', (payload: any) => {
+            if (!mounted) return;
+            setCaptionMessages((prev) => {
+              // If the message is a partial update (done === false),
+              // replace the previous partial from the same msgId
+              const existing = prev.findIndex((m) => m.msgId === payload.msgId);
+              if (existing >= 0) {
+                const updated = [...prev];
+                updated[existing] = payload;
+                return updated;
+              }
+              return [...prev, payload];
+            });
+          });
+
+          zoomClient.on('caption-status', (payload: any) => {
+            if (!mounted) return;
+            console.log('caption-status:', payload);
+          });
+
+          zoomClient.on('caption-enable', (payload: any) => {
+            if (!mounted) return;
+            console.log('caption-enable:', payload);
+          });
+
+          zoomClient.on('caption-host-disable', () => {
+            if (!mounted) return;
+            console.log('caption-host-disable: host disabled captions');
+          });
+        } catch (lttErr) {
+          console.warn(
+            'Could not initialize live transcription client:',
+            lttErr
+          );
+        }
+
         setIsLoading(false);
       } catch (err: any) {
         console.error('Error joining session:', err);
@@ -371,6 +417,10 @@ export default function VideoConference({
     setIsParticipantsOpen((prev) => !prev);
   }, []);
 
+  const toggleCaptions = useCallback(() => {
+    setIsCaptionsOpen((prev) => !prev);
+  }, []);
+
   // ─── Host / Manager actions ───
   const handleMuteUser = useCallback(
     async (userId: number) => {
@@ -506,7 +556,9 @@ export default function VideoConference({
       <div className='flex-1 overflow-hidden flex'>
         <div
           className={`${
-            isChatOpen || isParticipantsOpen ? 'w-[70%]' : 'w-full'
+            isChatOpen || isParticipantsOpen || isCaptionsOpen
+              ? 'w-[70%]'
+              : 'w-full'
           } transition-all duration-300 flex flex-col`}
           ref={videoContainerRef}
         >
@@ -575,12 +627,14 @@ export default function VideoConference({
           </div>
         </div>
         {/* Right side panel(s) */}
-        {(isChatOpen || isParticipantsOpen) && (
+        {(isChatOpen || isParticipantsOpen || isCaptionsOpen) && (
           <div className='w-[30%] min-w-[280px] flex flex-col'>
             {isParticipantsOpen && (
               <div
                 className={
-                  isChatOpen ? 'h-[45%] border-b border-gray-700' : 'flex-1'
+                  isChatOpen || isCaptionsOpen
+                    ? 'h-[40%] border-b border-gray-700'
+                    : 'flex-1'
                 }
               >
                 <ParticipantPanel
@@ -599,8 +653,28 @@ export default function VideoConference({
                 />
               </div>
             )}
+            {isCaptionsOpen && (
+              <div
+                className={
+                  isChatOpen || isParticipantsOpen
+                    ? 'h-[30%] border-b border-gray-700'
+                    : 'flex-1'
+                }
+              >
+                <CaptionPanel
+                  messages={captionMessages}
+                  lttClient={lttClient}
+                  isHost={amHost}
+                  onClose={toggleCaptions}
+                />
+              </div>
+            )}
             {isChatOpen && (
-              <div className={isParticipantsOpen ? 'h-[55%]' : 'flex-1'}>
+              <div
+                className={
+                  isParticipantsOpen || isCaptionsOpen ? 'h-[30%]' : 'flex-1'
+                }
+              >
                 <ChatPanel
                   messages={chatMessages}
                   currentUserId={currentUserId}
@@ -631,6 +705,8 @@ export default function VideoConference({
         recordingStatus={recordingStatus}
         canRecord={canRecord}
         isHost={amHost}
+        onToggleCaptions={toggleCaptions}
+        isCaptionsOpen={isCaptionsOpen}
       />
     </div>
   );

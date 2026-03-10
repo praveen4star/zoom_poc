@@ -22,6 +22,8 @@ interface VideoControlsProps {
   recordingStatus?: 'Stopped' | 'Recording' | 'Paused';
   canRecord?: boolean;
   isHost?: boolean;
+  onToggleCaptions?: () => void;
+  isCaptionsOpen?: boolean;
 }
 
 export default function VideoControls({
@@ -43,6 +45,8 @@ export default function VideoControls({
   recordingStatus = 'Stopped',
   canRecord = false,
   isHost = false,
+  onToggleCaptions,
+  isCaptionsOpen = false,
 }: VideoControlsProps) {
   const [isVideoOn, setIsVideoOn] = useState(true);
   const [isAudioOn, setIsAudioOn] = useState(true);
@@ -325,6 +329,50 @@ export default function VideoControls({
                 {participantCount}
               </span>
             )}
+          </button>
+        )}
+
+        {/* Captions / Translation */}
+        {onToggleCaptions && (
+          <button
+            onClick={onToggleCaptions}
+            className={`p-3 rounded-full ${
+              isCaptionsOpen
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-gray-700 text-white hover:bg-gray-600'
+            } transition-colors`}
+            title={
+              isCaptionsOpen ? 'Hide captions' : 'Show captions & translation'
+            }
+          >
+            {/* CC icon */}
+            <svg
+              className='w-6 h-6'
+              fill='none'
+              stroke='currentColor'
+              viewBox='0 0 24 24'
+            >
+              <rect
+                x='2'
+                y='4'
+                width='20'
+                height='16'
+                rx='2'
+                strokeWidth={2}
+              />
+              <text
+                x='12'
+                y='15'
+                textAnchor='middle'
+                fill='currentColor'
+                stroke='none'
+                fontSize='8'
+                fontWeight='bold'
+                fontFamily='sans-serif'
+              >
+                CC
+              </text>
+            </svg>
           </button>
         )}
 

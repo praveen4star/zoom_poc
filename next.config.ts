@@ -1,4 +1,4 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   // Use webpack for Zoom SDK WASM and web worker support
@@ -14,10 +14,10 @@ const nextConfig: NextConfig = {
     config.module.rules.push({
       test: /\.worker\.(js|ts)$/,
       use: {
-        loader: "worker-loader",
+        loader: 'worker-loader',
         options: {
-          name: "static/[hash].worker.js",
-          publicPath: "/_next/",
+          name: 'static/[hash].worker.js',
+          publicPath: '/_next/',
         },
       },
     });

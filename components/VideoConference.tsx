@@ -6,6 +6,8 @@ import type ZoomVideo from '@zoom/videosdk';
 import VideoGrid from './VideoGrid';
 import VideoControls from './VideoControls';
 import ChatPanel, { type ChatMessage } from './ChatPanel';
+import ScreenShareView from './ScreenShareView';
+import ParticipantPanel from './ParticipantPanel';
 
 interface VideoConferenceProps {
   sessionName: string; // Session name/topic (must match tpc in JWT token)
@@ -34,6 +36,12 @@ export default function VideoConference({
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [isParticipantsOpen, setIsParticipantsOpen] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+  const [activeShareUserId, setActiveShareUserId] = useState<number | null>(
+    null
+  );
+  const shareCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -157,6 +165,27 @@ export default function VideoConference({
           console.warn('Could not initialize chat client:', chatErr);
         }
 
+        // Listen to screen share events
+        zoomClient.on('active-share-change', (payload: any) => {
+          if (!mounted) return;
+          if (payload.state === 'Active') {
+            setActiveShareUserId(payload.userId);
+          } else if (payload.state === 'Inactive') {
+            setActiveShareUserId(null);
+          }
+        });
+
+        zoomClient.on('peer-share-state-change', (payload: any) => {
+          if (!mounted) return;
+          console.log('peer-share-state-change:', payload);
+        });
+
+        zoomClient.on('passively-stop-share', (payload: any) => {
+          if (!mounted) return;
+          console.log('passively-stop-share:', payload);
+          setIsSharing(false);
+        });
+
         setIsLoading(false);
       } catch (err: any) {
         console.error('Error joining session:', err);
@@ -232,10 +261,145 @@ export default function VideoConference({
     });
   }, []);
 
+  const toggleScreenShare = useCallback(async () => {
+    if (!stream) return;
+
+    try {
+      if (isSharing) {
+        await stream.stopShareScreen();
+        setIsSharing(false);
+        setActiveShareUserId(null);
+        // Remove the hidden share element
+        if (shareCanvasRef.current) {
+          shareCanvasRef.current.remove();
+          shareCanvasRef.current = null;
+        }
+      } else {
+        // Use a <video> element if the SDK supports it, otherwise <canvas>
+        const useVideoElement = stream.isStartShareScreenWithVideoElement?.();
+
+        let shareElement: HTMLCanvasElement | HTMLVideoElement;
+        if (useVideoElement) {
+          shareElement = document.createElement('video');
+        } else {
+          shareElement = document.createElement('canvas');
+        }
+        shareElement.style.width = '1px';
+        shareElement.style.height = '1px';
+        shareElement.style.position = 'absolute';
+        shareElement.style.opacity = '0';
+        document.body.appendChild(shareElement);
+        shareCanvasRef.current = shareElement as HTMLCanvasElement;
+
+        const result = await stream.startShareScreen(shareElement);
+
+        // Check if Chrome extension is required
+        if (
+          result &&
+          typeof result === 'object' &&
+          'type' in result &&
+          result.type === 'INVALID_OPERATION' &&
+          'extensionUrl' in result
+        ) {
+          alert(
+            `Please install the Chrome extension to share screen: ${result.extensionUrl}`
+          );
+          shareElement.remove();
+          return;
+        }
+
+        setIsSharing(true);
+        // The current user's share will trigger 'active-share-change' for others,
+        // but we also set our own state so we know to show a "stop sharing" button.
+        const sessionInfo = (client as any)?.getSessionInfo?.();
+        if (sessionInfo) {
+          setActiveShareUserId(sessionInfo.userId);
+        }
+      }
+    } catch (err: any) {
+      console.error('Error toggling screen share:', err);
+      if (
+        err?.type === 'DENIED_BY_BROWSER' ||
+        err?.message?.includes('denied') ||
+        err?.message?.includes('permission')
+      ) {
+        alert(
+          'Screen sharing permission was denied. Please allow screen sharing.'
+        );
+      }
+      setIsSharing(false);
+    }
+  }, [stream, isSharing, client]);
+
+  const toggleParticipants = useCallback(() => {
+    setIsParticipantsOpen((prev) => !prev);
+  }, []);
+
+  // ─── Host / Manager actions ───
+  const handleMuteUser = useCallback(
+    async (userId: number) => {
+      if (!stream) return;
+      await stream.muteAudio(userId);
+    },
+    [stream]
+  );
+
+  const handleMuteAll = useCallback(async () => {
+    if (!stream) return;
+    await stream.muteAllAudio();
+  }, [stream]);
+
+  const handleUnmuteAll = useCallback(async () => {
+    if (!stream) return;
+    await stream.unmuteAllAudio();
+  }, [stream]);
+
+  const handleRemoveUser = useCallback(
+    async (userId: number) => {
+      if (!client) return;
+      await (client as any).removeUser(userId);
+    },
+    [client]
+  );
+
+  const handleMakeHost = useCallback(
+    async (userId: number) => {
+      if (!client) return;
+      await (client as any).makeHost(userId);
+    },
+    [client]
+  );
+
+  const handleMakeManager = useCallback(
+    async (userId: number) => {
+      if (!client) return;
+      await (client as any).makeManager(userId);
+    },
+    [client]
+  );
+
+  const handleRevokeManager = useCallback(
+    async (userId: number) => {
+      if (!client) return;
+      await (client as any).revokeManager(userId);
+    },
+    [client]
+  );
+
   // Get current user ID for chat
   let currentUserId = 0;
   try {
     currentUserId = (client as any)?.getSessionInfo?.()?.userId ?? 0;
+  } catch {
+    // not ready
+  }
+
+  // Check if current user is host or manager
+  let amHost = false;
+  let amManager = false;
+  try {
+    amHost = (client as any)?.isHost?.() ?? false;
+    amManager = (client as any)?.isManager?.() ?? false;
   } catch {
     // not ready
   }
@@ -276,24 +440,89 @@ export default function VideoConference({
       <div className='flex-1 overflow-hidden flex'>
         <div
           className={`${
-            isChatOpen ? 'w-[70%]' : 'w-full'
-          } transition-all duration-300`}
+            isChatOpen || isParticipantsOpen ? 'w-[70%]' : 'w-full'
+          } transition-all duration-300 flex flex-col`}
           ref={videoContainerRef}
         >
-          <VideoGrid
-            stream={stream}
-            participants={participants}
-            client={client}
-          />
-        </div>
-        {isChatOpen && (
-          <div className='w-[30%] min-w-[280px]'>
-            <ChatPanel
-              messages={chatMessages}
-              currentUserId={currentUserId}
-              onSendMessage={handleSendMessage}
-              onClose={toggleChat}
+          {/* Screen share view — shown when someone else is sharing */}
+          {activeShareUserId && activeShareUserId !== currentUserId && (
+            <div className='flex-1 min-h-0 relative'>
+              <ScreenShareView
+                stream={stream}
+                activeShareUserId={activeShareUserId}
+              />
+              <div className='absolute top-3 left-3 bg-black/70 text-white px-3 py-1.5 rounded text-sm z-10'>
+                {participants.find((p) => p.userId === activeShareUserId)
+                  ?.userName || 'Someone'}{' '}
+                is sharing their screen
+              </div>
+            </div>
+          )}
+
+          {/* Self-sharing banner */}
+          {isSharing && (
+            <div className='bg-green-700 text-white text-center py-2 text-sm font-medium flex items-center justify-center gap-3'>
+              <span className='inline-block w-2 h-2 bg-red-400 rounded-full animate-pulse' />
+              You are sharing your screen
+              <button
+                onClick={toggleScreenShare}
+                className='ml-2 px-3 py-1 bg-red-600 rounded hover:bg-red-700 transition-colors text-xs font-semibold'
+              >
+                Stop Sharing
+              </button>
+            </div>
+          )}
+
+          {/* Video grid — shrink when share is visible */}
+          <div
+            className={
+              activeShareUserId && activeShareUserId !== currentUserId
+                ? 'h-[200px] shrink-0'
+                : 'flex-1 min-h-0'
+            }
+          >
+            <VideoGrid
+              stream={stream}
+              participants={participants}
+              client={client}
             />
+          </div>
+        </div>
+        {/* Right side panel(s) */}
+        {(isChatOpen || isParticipantsOpen) && (
+          <div className='w-[30%] min-w-[280px] flex flex-col'>
+            {isParticipantsOpen && (
+              <div
+                className={
+                  isChatOpen ? 'h-[45%] border-b border-gray-700' : 'flex-1'
+                }
+              >
+                <ParticipantPanel
+                  participants={participants}
+                  currentUserId={currentUserId}
+                  isHost={amHost}
+                  isManager={amManager}
+                  onClose={toggleParticipants}
+                  onMuteUser={handleMuteUser}
+                  onMuteAll={handleMuteAll}
+                  onUnmuteAll={handleUnmuteAll}
+                  onRemoveUser={handleRemoveUser}
+                  onMakeHost={handleMakeHost}
+                  onMakeManager={handleMakeManager}
+                  onRevokeManager={handleRevokeManager}
+                />
+              </div>
+            )}
+            {isChatOpen && (
+              <div className={isParticipantsOpen ? 'h-[55%]' : 'flex-1'}>
+                <ChatPanel
+                  messages={chatMessages}
+                  currentUserId={currentUserId}
+                  onSendMessage={handleSendMessage}
+                  onClose={toggleChat}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -306,6 +535,11 @@ export default function VideoConference({
         isChatOpen={isChatOpen}
         unreadCount={unreadCount}
         userRole={userRole}
+        onToggleScreenShare={toggleScreenShare}
+        isSharing={isSharing}
+        onToggleParticipants={toggleParticipants}
+        isParticipantsOpen={isParticipantsOpen}
+        participantCount={participants.length}
       />
     </div>
   );

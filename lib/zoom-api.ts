@@ -51,7 +51,7 @@ export async function createVideoSession(
   const payload = {
     session_name: request.topic,
     settings: {
-      auto_recording: 'cloud',
+      auto_recording: 'none',
     },
   };
 

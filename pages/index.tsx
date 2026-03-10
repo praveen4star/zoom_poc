@@ -64,6 +64,9 @@ export default function Home() {
   const handleJoinSession = async () => {
     // Use sessionId if we created it, otherwise use joinSessionId
     const targetSessionId = sessionId || joinSessionId;
+    // If the user created the session (mode === 'create' and sessionId is set),
+    // they are the host (role 1). Otherwise they're an attendee (role 0).
+    const isCreator = mode === 'create' && !!sessionId;
 
     if (!targetSessionId || !userName) {
       setError('Please fill in all fields');
@@ -86,6 +89,7 @@ export default function Home() {
           sessionId: targetSessionId,
           userName,
           userId: finalUserId,
+          role: isCreator ? 1 : 0, // Host if creator, attendee otherwise
         }),
       });
 

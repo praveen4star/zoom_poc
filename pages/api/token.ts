@@ -11,7 +11,7 @@ export default async function handler(
   }
 
   try {
-    const { sessionId, userName, userId } = req.body;
+    const { sessionId, userName, userId, role: clientRole } = req.body;
 
     if (!sessionId || !userName || !userId) {
       return res.status(400).json({
@@ -32,12 +32,26 @@ export default async function handler(
     const sessionName = sessionData?.sessionName || sessionId;
 
     // Determine user role
+    // 1. Check session store first (authoritative)
+    // 2. Fall back to client-provided role (needed when in-memory store is cleared by HMR)
     let role = 0; // Default to attendee
 
-    if (sessionStore.isHost(sessionId, userId)) {
-      role = 1; // Host
-    } else if (sessionStore.isCoHost(sessionId, userId)) {
-      role = 0; // Co-host uses role 0 (attendee) - Zoom Video SDK doesn't have separate co-host role
+    if (sessionData) {
+      // Session store has data — use it as the source of truth
+      if (sessionStore.isHost(sessionId, userId)) {
+        role = 1; // Host
+      } else if (sessionStore.isCoHost(sessionId, userId)) {
+        role = 0; // Co-host
+      }
+    } else if (
+      typeof clientRole === 'number' &&
+      (clientRole === 0 || clientRole === 1)
+    ) {
+      // Session store empty (e.g. HMR cleared it) — trust the client hint
+      role = clientRole;
+      console.warn(
+        `Session ${sessionId} not found in store — using client-provided role: ${role}`
+      );
     }
 
     // Log for debugging

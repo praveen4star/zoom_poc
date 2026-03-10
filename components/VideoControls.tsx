@@ -17,6 +17,11 @@ interface VideoControlsProps {
   onToggleParticipants?: () => void;
   isParticipantsOpen?: boolean;
   participantCount?: number;
+  onToggleRecording?: () => void;
+  onPauseRecording?: () => void;
+  recordingStatus?: 'Stopped' | 'Recording' | 'Paused';
+  canRecord?: boolean;
+  isHost?: boolean;
 }
 
 export default function VideoControls({
@@ -33,6 +38,11 @@ export default function VideoControls({
   onToggleParticipants,
   isParticipantsOpen = false,
   participantCount = 0,
+  onToggleRecording,
+  onPauseRecording,
+  recordingStatus = 'Stopped',
+  canRecord = false,
+  isHost = false,
 }: VideoControlsProps) {
   const [isVideoOn, setIsVideoOn] = useState(true);
   const [isAudioOn, setIsAudioOn] = useState(true);
@@ -213,6 +223,75 @@ export default function VideoControls({
               </svg>
             )}
           </button>
+        )}
+
+        {/* Recording — only show for host or if recording is enabled */}
+        {onToggleRecording && (isHost || canRecord) && (
+          <div className='flex items-center gap-1'>
+            <button
+              onClick={onToggleRecording}
+              className={`p-3 rounded-full ${
+                recordingStatus === 'Recording'
+                  ? 'bg-red-600 text-white hover:bg-red-700'
+                  : recordingStatus === 'Paused'
+                  ? 'bg-yellow-600 text-white hover:bg-yellow-700'
+                  : 'bg-gray-700 text-white hover:bg-gray-600'
+              } transition-colors`}
+              title={
+                recordingStatus === 'Recording'
+                  ? 'Stop recording'
+                  : recordingStatus === 'Paused'
+                  ? 'Resume recording'
+                  : 'Start recording'
+              }
+            >
+              {recordingStatus === 'Recording' ? (
+                /* Stop / solid square icon */
+                <svg
+                  className='w-6 h-6'
+                  fill='currentColor'
+                  viewBox='0 0 24 24'
+                >
+                  <rect x='6' y='6' width='12' height='12' rx='1' />
+                </svg>
+              ) : recordingStatus === 'Paused' ? (
+                /* Resume / play icon */
+                <svg
+                  className='w-6 h-6'
+                  fill='currentColor'
+                  viewBox='0 0 24 24'
+                >
+                  <path d='M8 5v14l11-7z' />
+                </svg>
+              ) : (
+                /* Record / circle icon */
+                <svg
+                  className='w-6 h-6'
+                  fill='currentColor'
+                  viewBox='0 0 24 24'
+                >
+                  <circle cx='12' cy='12' r='7' />
+                </svg>
+              )}
+            </button>
+            {/* Pause button — only visible while recording */}
+            {recordingStatus === 'Recording' && onPauseRecording && (
+              <button
+                onClick={onPauseRecording}
+                className='p-2 rounded-full bg-gray-700 text-white hover:bg-gray-600 transition-colors'
+                title='Pause recording'
+              >
+                <svg
+                  className='w-5 h-5'
+                  fill='currentColor'
+                  viewBox='0 0 24 24'
+                >
+                  <rect x='6' y='5' width='4' height='14' rx='1' />
+                  <rect x='14' y='5' width='4' height='14' rx='1' />
+                </svg>
+              </button>
+            )}
+          </div>
         )}
 
         {/* Participants */}

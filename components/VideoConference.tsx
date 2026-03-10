@@ -38,6 +38,11 @@ export default function VideoConference({
   const [unreadCount, setUnreadCount] = useState(0);
   const [isParticipantsOpen, setIsParticipantsOpen] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+  const [recordingStatus, setRecordingStatus] = useState<
+    'Stopped' | 'Recording' | 'Paused'
+  >('Stopped');
+  const [recordingClient, setRecordingClient] = useState<any>(null);
+  const [canRecord, setCanRecord] = useState(false);
   const [activeShareUserId, setActiveShareUserId] = useState<number | null>(
     null
   );
@@ -185,6 +190,37 @@ export default function VideoConference({
           console.log('passively-stop-share:', payload);
           setIsSharing(false);
         });
+
+        // Initialize recording client
+        try {
+          const recClient = zoomClient.getRecordingClient();
+          setRecordingClient(recClient);
+          setCanRecord(recClient.canStartRecording());
+
+          // Sync initial status
+          const initialStatus = recClient.getCloudRecordingStatus();
+          if (
+            initialStatus === 'Recording' ||
+            initialStatus === 'Paused' ||
+            initialStatus === 'Stopped'
+          ) {
+            setRecordingStatus(initialStatus);
+          }
+
+          zoomClient.on('recording-change', (payload: any) => {
+            if (!mounted) return;
+            console.log('recording-change:', payload);
+            if (
+              payload.state === 'Recording' ||
+              payload.state === 'Paused' ||
+              payload.state === 'Stopped'
+            ) {
+              setRecordingStatus(payload.state);
+            }
+          });
+        } catch (recErr) {
+          console.warn('Could not initialize recording client:', recErr);
+        }
 
         setIsLoading(false);
       } catch (err: any) {
@@ -386,6 +422,36 @@ export default function VideoConference({
     [client]
   );
 
+  // ─── Recording actions ───
+  const toggleRecording = useCallback(async () => {
+    if (!recordingClient) return;
+    try {
+      if (recordingStatus === 'Recording') {
+        await recordingClient.stopCloudRecording();
+        setRecordingStatus('Stopped');
+      } else if (recordingStatus === 'Paused') {
+        await recordingClient.resumeCloudRecording();
+        setRecordingStatus('Paused');
+      } else {
+        await recordingClient.startCloudRecording();
+        setRecordingStatus('Recording');
+      }
+    } catch (err: any) {
+      console.error('Error toggling recording:', err);
+      const reason = err?.reason || err?.message || 'Unknown error';
+      alert(`Recording error: ${reason}`);
+    }
+  }, [recordingClient, recordingStatus]);
+
+  const pauseRecording = useCallback(async () => {
+    if (!recordingClient) return;
+    try {
+      await recordingClient.pauseCloudRecording();
+    } catch (err: any) {
+      console.error('Error pausing recording:', err);
+    }
+  }, [recordingClient]);
+
   // Get current user ID for chat
   let currentUserId = 0;
   try {
@@ -444,6 +510,26 @@ export default function VideoConference({
           } transition-all duration-300 flex flex-col`}
           ref={videoContainerRef}
         >
+          {/* Recording indicator banner */}
+          {recordingStatus !== 'Stopped' && (
+            <div
+              className={`text-white text-center py-1.5 text-sm font-medium flex items-center justify-center gap-3 ${
+                recordingStatus === 'Paused' ? 'bg-yellow-700' : 'bg-red-700'
+              }`}
+            >
+              <span
+                className={`inline-block w-2 h-2 rounded-full ${
+                  recordingStatus === 'Paused'
+                    ? 'bg-yellow-300'
+                    : 'bg-red-400 animate-pulse'
+                }`}
+              />
+              {recordingStatus === 'Paused'
+                ? 'Recording Paused'
+                : 'Recording in Progress'}
+            </div>
+          )}
+
           {/* Screen share view — shown when someone else is sharing */}
           {activeShareUserId && activeShareUserId !== currentUserId && (
             <div className='flex-1 min-h-0 relative'>
@@ -540,6 +626,11 @@ export default function VideoConference({
         onToggleParticipants={toggleParticipants}
         isParticipantsOpen={isParticipantsOpen}
         participantCount={participants.length}
+        onToggleRecording={toggleRecording}
+        onPauseRecording={pauseRecording}
+        recordingStatus={recordingStatus}
+        canRecord={canRecord}
+        isHost={amHost}
       />
     </div>
   );

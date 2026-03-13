@@ -426,7 +426,9 @@ export default function VideoControls({
                 ? 'bg-teal-700 text-white hover:bg-teal-600'
                 : 'bg-gray-700 text-white hover:bg-gray-600'
             } transition-colors`}
-            title={isBreakoutRoomsOpen ? 'Close breakout rooms' : 'Breakout rooms'}
+            title={
+              isBreakoutRoomsOpen ? 'Close breakout rooms' : 'Breakout rooms'
+            }
           >
             <svg
               className='w-6 h-6'

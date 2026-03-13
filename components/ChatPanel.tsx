@@ -46,7 +46,10 @@ function formatFileSize(bytes: number): string {
 }
 
 function isImageType(type: string): boolean {
-  return type.startsWith('image/') || /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(type);
+  return (
+    type.startsWith('image/') ||
+    /\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i.test(type)
+  );
 }
 
 export default function ChatPanel({
@@ -87,15 +90,24 @@ export default function ChatPanel({
 
   const validateFile = useCallback(
     (file: File): string | null => {
-      if (fileTransferSetting?.sizeLimit && file.size > fileTransferSetting.sizeLimit) {
-        return `File is too large. Maximum size: ${formatFileSize(fileTransferSetting.sizeLimit)}`;
+      if (
+        fileTransferSetting?.sizeLimit &&
+        file.size > fileTransferSetting.sizeLimit
+      ) {
+        return `File is too large. Maximum size: ${formatFileSize(
+          fileTransferSetting.sizeLimit
+        )}`;
       }
       if (fileTransferSetting?.typeLimit) {
         const allowedExts = fileTransferSetting.typeLimit
           .split(',')
           .map((ext) => ext.trim().toLowerCase());
         const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
-        if (allowedExts.length > 0 && allowedExts[0] !== '' && !allowedExts.includes(fileExt)) {
+        if (
+          allowedExts.length > 0 &&
+          allowedExts[0] !== '' &&
+          !allowedExts.includes(fileExt)
+        ) {
           return `File type .${fileExt} is not allowed. Allowed: ${fileTransferSetting.typeLimit}`;
         }
       }

@@ -806,7 +806,9 @@ export default function VideoConference({
         setSubsessions(result);
         try {
           setUnassignedUsers(ssClient.getUnassignedUserList() || []);
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
     },
     [ssClient]
@@ -832,7 +834,9 @@ export default function VideoConference({
       try {
         setSubsessions(ssClient.getSubsessionList() || []);
         setUnassignedUsers(ssClient.getUnassignedUserList() || []);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     },
     [ssClient]
   );
@@ -887,8 +891,10 @@ export default function VideoConference({
 
   // Derive current user's subsession status and info
   let userSubsessionStatus = 'initial';
-  let currentSubsession: { subsessionName: string; subsessionId: string } | null =
-    null;
+  let currentSubsession: {
+    subsessionName: string;
+    subsessionId: string;
+  } | null = null;
   try {
     if (ssClient) {
       userSubsessionStatus = ssClient.getUserStatus() || 'initial';
@@ -953,7 +959,10 @@ export default function VideoConference({
       <div className='flex-1 overflow-hidden flex'>
         <div
           className={`${
-            isChatOpen || isParticipantsOpen || isCaptionsOpen || isBreakoutRoomsOpen
+            isChatOpen ||
+            isParticipantsOpen ||
+            isCaptionsOpen ||
+            isBreakoutRoomsOpen
               ? 'w-[70%]'
               : 'w-full'
           } transition-all duration-300 flex flex-col relative`}
@@ -993,7 +1002,8 @@ export default function VideoConference({
           {/* Closing countdown banner */}
           {ssClosingCountdown !== null && (
             <div className='bg-red-700 text-white text-center py-1.5 text-sm font-medium z-20'>
-              Breakout rooms closing in {Math.floor(ssClosingCountdown / 60)}:{(ssClosingCountdown % 60).toString().padStart(2, '0')}
+              Breakout rooms closing in {Math.floor(ssClosingCountdown / 60)}:
+              {(ssClosingCountdown % 60).toString().padStart(2, '0')}
             </div>
           )}
 
@@ -1070,7 +1080,10 @@ export default function VideoConference({
           </div>
         </div>
         {/* Right side panel(s) */}
-        {(isChatOpen || isParticipantsOpen || isCaptionsOpen || isBreakoutRoomsOpen) && (
+        {(isChatOpen ||
+          isParticipantsOpen ||
+          isCaptionsOpen ||
+          isBreakoutRoomsOpen) && (
           <div className='w-[30%] min-w-[280px] flex flex-col'>
             {isBreakoutRoomsOpen && (
               <div

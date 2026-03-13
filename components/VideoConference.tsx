@@ -58,6 +58,12 @@ export default function VideoConference({
   );
   const [cmdClient, setCmdClient] = useState<any>(null);
   const [reactions, setReactions] = useState<Reaction[]>([]);
+  const [isFileTransferEnabled, setIsFileTransferEnabled] = useState(false);
+  const [fileTransferSetting, setFileTransferSetting] = useState<{
+    typeLimit?: string;
+    sizeLimit?: number;
+  } | null>(null);
+  const [imageBlobs, setImageBlobs] = useState<Record<string, string>>({});
   const shareCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const reactionIdCounter = useRef(0);
@@ -177,6 +183,48 @@ export default function VideoConference({
                 }
                 return open;
               });
+            }
+          });
+          // File transfer support
+          try {
+            setIsFileTransferEnabled(chat.isFileTransferEnabled());
+            setFileTransferSetting(chat.getFileTransferSetting());
+          } catch {
+            // file transfer may not be available
+          }
+
+          // Track upload progress — update the file.upload field on matching messages
+          zoomClient.on('chat-file-upload-progress', (payload: any) => {
+            if (!mounted) return;
+            setChatMessages((prev) =>
+              prev.map((m) => {
+                if (
+                  m.file &&
+                  m.file.name === payload.fileName &&
+                  m.sender?.userId === currentUserId
+                ) {
+                  return {
+                    ...m,
+                    file: {
+                      ...m.file,
+                      upload: {
+                        status: payload.status,
+                        progress: payload.progress,
+                      },
+                    },
+                  };
+                }
+                return m;
+              })
+            );
+          });
+
+          // Track download progress — store blob URLs for inline image previews
+          zoomClient.on('chat-file-download-progress', (payload: any) => {
+            if (!mounted) return;
+            if (payload.status === 2 && payload.fileBlob) {
+              const blobUrl = URL.createObjectURL(payload.fileBlob);
+              setImageBlobs((prev) => ({ ...prev, [payload.id]: blobUrl }));
             }
           });
         } catch (chatErr) {
@@ -394,6 +442,28 @@ export default function VideoConference({
       await chatClient.sendToAll(text);
     },
     [chatClient]
+  );
+
+  const handleSendFile = useCallback(
+    async (file: File) => {
+      if (!chatClient) return;
+      await chatClient.sendFile(file, 0);
+    },
+    [chatClient]
+  );
+
+  const handleDownloadFile = useCallback(
+    (msgId: string, fileUrl: string) => {
+      if (!chatClient) return;
+      const msg = chatMessages.find((m) => m.id === msgId);
+      const fileName = msg?.file?.name || '';
+      const isImage =
+        fileName.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i) ||
+        msg?.file?.type?.startsWith('image/');
+
+      chatClient.downloadFile(msgId, fileUrl, !!isImage);
+    },
+    [chatClient, chatMessages]
   );
 
   const toggleChat = useCallback(() => {
@@ -812,6 +882,11 @@ export default function VideoConference({
                   currentUserId={currentUserId}
                   onSendMessage={handleSendMessage}
                   onClose={toggleChat}
+                  onSendFile={handleSendFile}
+                  onDownloadFile={handleDownloadFile}
+                  isFileTransferEnabled={isFileTransferEnabled}
+                  fileTransferSetting={fileTransferSetting}
+                  imageBlobs={imageBlobs}
                 />
               </div>
             )}

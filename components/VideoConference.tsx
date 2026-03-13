@@ -9,6 +9,7 @@ import ChatPanel, { type ChatMessage } from './ChatPanel';
 import ScreenShareView from './ScreenShareView';
 import ParticipantPanel from './ParticipantPanel';
 import CaptionPanel, { type CaptionMessage } from './CaptionPanel';
+import ReactionOverlay, { type Reaction } from './ReactionOverlay';
 
 interface VideoConferenceProps {
   sessionName: string; // Session name/topic (must match tpc in JWT token)
@@ -55,8 +56,11 @@ export default function VideoConference({
   const [activeShareUserId, setActiveShareUserId] = useState<number | null>(
     null
   );
+  const [cmdClient, setCmdClient] = useState<any>(null);
+  const [reactions, setReactions] = useState<Reaction[]>([]);
   const shareCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
+  const reactionIdCounter = useRef(0);
 
   useEffect(() => {
     let mounted = true;
@@ -292,6 +296,36 @@ export default function VideoConference({
           });
         } catch (aiErr) {
           console.warn('Could not initialize AI client:', aiErr);
+        }
+
+        // Initialize command channel for emoji reactions
+        try {
+          const cmd = zoomClient.getCommandClient();
+          setCmdClient(cmd);
+
+          zoomClient.on('command-channel-message', (payload: any) => {
+            if (!mounted) return;
+            try {
+              const data = JSON.parse(payload.text || payload.message);
+              if (data.type === 'reaction') {
+                setReactions((prev) => [
+                  ...prev,
+                  {
+                    id: `r-${Date.now()}-${Math.random()}`,
+                    emoji: data.emoji,
+                    userName: data.userName,
+                    userId: data.userId,
+                    timestamp: Date.now(),
+                    left: Math.random() * 85 + 5,
+                  },
+                ]);
+              }
+            } catch {
+              // not a reaction payload — ignore
+            }
+          });
+        } catch (cmdErr) {
+          console.warn('Could not initialize command channel:', cmdErr);
         }
 
         setIsLoading(false);
@@ -544,6 +578,49 @@ export default function VideoConference({
     }
   }, [recordingClient]);
 
+  // ─── Reaction actions ───
+  const handleReact = useCallback(
+    async (emoji: string) => {
+      const sessionInfo = (client as any)?.getSessionInfo?.();
+      const myUserId = sessionInfo?.userId ?? 0;
+      const myName = sessionInfo?.userName ?? userName;
+
+      const payload = JSON.stringify({
+        type: 'reaction',
+        emoji,
+        userName: myName,
+        userId: myUserId,
+      });
+
+      // Show locally immediately
+      setReactions((prev) => [
+        ...prev,
+        {
+          id: `r-${Date.now()}-${reactionIdCounter.current++}`,
+          emoji,
+          userName: myName,
+          userId: myUserId,
+          timestamp: Date.now(),
+          left: Math.random() * 85 + 5,
+        },
+      ]);
+
+      // Broadcast to other participants
+      if (cmdClient) {
+        try {
+          await cmdClient.send(payload);
+        } catch (err) {
+          console.warn('Failed to send reaction via command channel:', err);
+        }
+      }
+    },
+    [client, cmdClient, userName]
+  );
+
+  const handleReactionExpire = useCallback((id: string) => {
+    setReactions((prev) => prev.filter((r) => r.id !== id));
+  }, []);
+
   // Get current user ID for chat
   let currentUserId = 0;
   try {
@@ -601,9 +678,14 @@ export default function VideoConference({
             isChatOpen || isParticipantsOpen || isCaptionsOpen
               ? 'w-[70%]'
               : 'w-full'
-          } transition-all duration-300 flex flex-col`}
+          } transition-all duration-300 flex flex-col relative`}
           ref={videoContainerRef}
         >
+          {/* Emoji reaction overlay */}
+          <ReactionOverlay
+            reactions={reactions}
+            onExpire={handleReactionExpire}
+          />
           {/* Recording indicator banner */}
           {recordingStatus !== 'Stopped' && (
             <div
@@ -760,6 +842,7 @@ export default function VideoConference({
         onToggleSummary={toggleSummary}
         summaryStatus={summaryStatus}
         isSummaryEnabled={isSummaryEnabled}
+        onReact={handleReact}
       />
     </div>
   );

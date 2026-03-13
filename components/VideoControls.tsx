@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import type ZoomVideo from '@zoom/videosdk';
+import ReactionPicker from './ReactionPicker';
 
 interface VideoControlsProps {
   stream: typeof ZoomVideo.MediaStream;
@@ -27,6 +28,7 @@ interface VideoControlsProps {
   onToggleSummary?: () => void;
   summaryStatus?: 'Start' | 'Paused' | 'Stopped' | 'Default';
   isSummaryEnabled?: boolean;
+  onReact?: (emoji: string) => void;
 }
 
 export default function VideoControls({
@@ -53,9 +55,11 @@ export default function VideoControls({
   onToggleSummary,
   summaryStatus = 'Default',
   isSummaryEnabled = false,
+  onReact,
 }: VideoControlsProps) {
   const [isVideoOn, setIsVideoOn] = useState(true);
   const [isAudioOn, setIsAudioOn] = useState(true);
+  const [isReactionPickerOpen, setIsReactionPickerOpen] = useState(false);
 
   useEffect(() => {
     if (!stream) return;
@@ -403,6 +407,41 @@ export default function VideoControls({
               />
             </svg>
           </button>
+        )}
+
+        {/* Reactions */}
+        {onReact && (
+          <div className='relative'>
+            <button
+              onClick={() => setIsReactionPickerOpen((prev) => !prev)}
+              className={`p-3 rounded-full ${
+                isReactionPickerOpen
+                  ? 'bg-yellow-600 text-white hover:bg-yellow-700'
+                  : 'bg-gray-700 text-white hover:bg-gray-600'
+              } transition-colors`}
+              title='Reactions'
+            >
+              <svg
+                className='w-6 h-6'
+                fill='none'
+                stroke='currentColor'
+                viewBox='0 0 24 24'
+              >
+                <path
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
+                  strokeWidth={2}
+                  d='M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
+                />
+              </svg>
+            </button>
+            {isReactionPickerOpen && (
+              <ReactionPicker
+                onReact={onReact}
+                onClose={() => setIsReactionPickerOpen(false)}
+              />
+            )}
+          </div>
         )}
 
         <button

@@ -35,11 +35,11 @@ function FloatingEmoji({
   return (
     <div
       ref={ref}
-      className="reaction-float absolute pointer-events-none flex flex-col items-center"
+      className='reaction-float absolute pointer-events-none flex flex-col items-center'
       style={{ left: `${reaction.left}%`, bottom: '10%' }}
     >
-      <span className="text-4xl drop-shadow-lg">{reaction.emoji}</span>
-      <span className="text-xs text-white/80 bg-black/40 rounded px-1.5 py-0.5 mt-0.5 whitespace-nowrap">
+      <span className='text-4xl drop-shadow-lg'>{reaction.emoji}</span>
+      <span className='text-xs text-white/80 bg-black/40 rounded px-1.5 py-0.5 mt-0.5 whitespace-nowrap'>
         {reaction.userName}
       </span>
     </div>
@@ -53,7 +53,7 @@ export default function ReactionOverlay({
   if (reactions.length === 0) return null;
 
   return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none z-30">
+    <div className='absolute inset-0 overflow-hidden pointer-events-none z-30'>
       {reactions.map((r) => (
         <FloatingEmoji key={r.id} reaction={r} onExpire={onExpire} />
       ))}

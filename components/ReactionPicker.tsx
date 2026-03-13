@@ -18,7 +18,10 @@ interface ReactionPickerProps {
   onClose: () => void;
 }
 
-export default function ReactionPicker({ onReact, onClose }: ReactionPickerProps) {
+export default function ReactionPicker({
+  onReact,
+  onClose,
+}: ReactionPickerProps) {
   const pickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -34,7 +37,7 @@ export default function ReactionPicker({ onReact, onClose }: ReactionPickerProps
   return (
     <div
       ref={pickerRef}
-      className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 bg-gray-800 border border-gray-600 rounded-xl shadow-2xl p-2 flex gap-1 z-50"
+      className='absolute bottom-full mb-3 left-1/2 -translate-x-1/2 bg-gray-800 border border-gray-600 rounded-xl shadow-2xl p-2 flex gap-1 z-50'
     >
       {REACTIONS.map(({ emoji, label }) => (
         <button
@@ -43,7 +46,7 @@ export default function ReactionPicker({ onReact, onClose }: ReactionPickerProps
             onReact(emoji);
             onClose();
           }}
-          className="w-10 h-10 flex items-center justify-center text-2xl rounded-lg hover:bg-gray-700 transition-colors"
+          className='w-10 h-10 flex items-center justify-center text-2xl rounded-lg hover:bg-gray-700 transition-colors'
           title={label}
         >
           {emoji}

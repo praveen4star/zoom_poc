@@ -10,6 +10,10 @@ import ScreenShareView from './ScreenShareView';
 import ParticipantPanel from './ParticipantPanel';
 import CaptionPanel, { type CaptionMessage } from './CaptionPanel';
 import ReactionOverlay, { type Reaction } from './ReactionOverlay';
+import BreakoutRoomPanel, {
+  type SubsessionInfo,
+  type HelpRequest,
+} from './BreakoutRoomPanel';
 
 interface VideoConferenceProps {
   sessionName: string; // Session name/topic (must match tpc in JWT token)
@@ -64,6 +68,23 @@ export default function VideoConference({
     sizeLimit?: number;
   } | null>(null);
   const [imageBlobs, setImageBlobs] = useState<Record<string, string>>({});
+  const [ssClient, setSsClient] = useState<any>(null);
+  const [isBreakoutRoomsOpen, setIsBreakoutRoomsOpen] = useState(false);
+  const [subsessionStatus, setSubsessionStatus] = useState(1); // 1=NotStarted
+  const [subsessions, setSubsessions] = useState<SubsessionInfo[]>([]);
+  const [unassignedUsers, setUnassignedUsers] = useState<
+    Array<{ userId: number; displayName: string }>
+  >([]);
+  const [helpRequests, setHelpRequests] = useState<HelpRequest[]>([]);
+  const [ssBroadcastMsg, setSsBroadcastMsg] = useState<string | null>(null);
+  const [ssClosingCountdown, setSsClosingCountdown] = useState<number | null>(
+    null
+  );
+  const [ssRoomCountdown, setSsRoomCountdown] = useState<number | null>(null);
+  const [ssInvite, setSsInvite] = useState<{
+    subsessionId: string;
+    subsessionName: string;
+  } | null>(null);
   const shareCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
   const reactionIdCounter = useRef(0);
@@ -111,16 +132,20 @@ export default function VideoConference({
         setParticipants(allParticipants || []);
 
         // Listen to participant events
+        // Payload is Array<ParticipantPropertiesPayload>
         zoomClient.on('user-added', (payload: any) => {
           if (mounted) {
-            setParticipants((prev) => [...prev, payload.user]);
+            const users = Array.isArray(payload) ? payload : [payload];
+            setParticipants((prev) => [...prev, ...users]);
           }
         });
 
         zoomClient.on('user-removed', (payload: any) => {
           if (mounted) {
+            const users = Array.isArray(payload) ? payload : [payload];
+            const removedIds = new Set(users.map((u: any) => u.userId));
             setParticipants((prev) =>
-              prev.filter((p) => p.userId !== payload.user.userId)
+              prev.filter((p) => !removedIds.has(p.userId))
             );
           }
         });
@@ -374,6 +399,83 @@ export default function VideoConference({
           });
         } catch (cmdErr) {
           console.warn('Could not initialize command channel:', cmdErr);
+        }
+
+        // Initialize subsession client for breakout rooms
+        try {
+          const ss = zoomClient.getSubsessionClient();
+          setSsClient(ss);
+
+          const initialStatus = ss.getSubsessionStatus();
+          if (initialStatus) setSubsessionStatus(initialStatus);
+
+          const refreshSubsessions = () => {
+            try {
+              setSubsessions(ss.getSubsessionList() || []);
+              setUnassignedUsers(ss.getUnassignedUserList() || []);
+            } catch {
+              // not available yet
+            }
+          };
+
+          zoomClient.on('subsession-state-change', (payload: any) => {
+            if (!mounted) return;
+            if (payload?.status) setSubsessionStatus(payload.status);
+            refreshSubsessions();
+            if (payload?.status === 4) {
+              setSsClosingCountdown(null);
+              setSsRoomCountdown(null);
+            }
+          });
+
+          zoomClient.on('subsession-invite-to-join', (payload: any) => {
+            if (!mounted) return;
+            setSsInvite({
+              subsessionId: payload.subsessionId,
+              subsessionName: payload.subsessionName,
+            });
+          });
+
+          zoomClient.on('subsession-countdown', (payload: any) => {
+            if (!mounted) return;
+            setSsRoomCountdown(payload.countdown);
+          });
+
+          zoomClient.on('subsession-time-up', () => {
+            if (!mounted) return;
+            setSsRoomCountdown(null);
+          });
+
+          zoomClient.on('closing-subsession-countdown', (payload: any) => {
+            if (!mounted) return;
+            setSsClosingCountdown(payload.countdown);
+          });
+
+          zoomClient.on('subsession-broadcast-message', (payload: any) => {
+            if (!mounted) return;
+            setSsBroadcastMsg(payload.message);
+            setTimeout(() => setSsBroadcastMsg(null), 10000);
+          });
+
+          zoomClient.on('subsession-ask-for-help', (payload: any) => {
+            if (!mounted) return;
+            setHelpRequests((prev) => [
+              ...prev,
+              { ...payload, timestamp: Date.now() },
+            ]);
+          });
+
+          zoomClient.on('subsession-user-update', () => {
+            if (!mounted) return;
+            refreshSubsessions();
+          });
+
+          zoomClient.on('subsession-invite-back-to-main-session', () => {
+            if (!mounted) return;
+            // Auto-handled or prompt depending on options
+          });
+        } catch (ssErr) {
+          console.warn('Could not initialize subsession client:', ssErr);
         }
 
         setIsLoading(false);
@@ -691,6 +793,112 @@ export default function VideoConference({
     setReactions((prev) => prev.filter((r) => r.id !== id));
   }, []);
 
+  // ─── Breakout room actions ───
+  const toggleBreakoutRooms = useCallback(() => {
+    setIsBreakoutRoomsOpen((prev) => !prev);
+  }, []);
+
+  const handleCreateSubsessions = useCallback(
+    async (names: string[]) => {
+      if (!ssClient) return;
+      const result = await ssClient.createSubsessions(names);
+      if (!(result instanceof Error)) {
+        setSubsessions(result);
+        try {
+          setUnassignedUsers(ssClient.getUnassignedUserList() || []);
+        } catch { /* ignore */ }
+      }
+    },
+    [ssClient]
+  );
+
+  const handleOpenSubsessions = useCallback(
+    async (options: {
+      isAutoJoinSubsession: boolean;
+      isBackToMainSessionEnabled: boolean;
+      isTimerEnabled: boolean;
+      timerDuration: number;
+    }) => {
+      if (!ssClient) return;
+      await ssClient.openSubsessions(subsessions, options);
+    },
+    [ssClient, subsessions]
+  );
+
+  const handleAssignUser = useCallback(
+    async (userId: number, subsessionId: string) => {
+      if (!ssClient) return;
+      await ssClient.assignUserToSubsession(userId, subsessionId);
+      try {
+        setSubsessions(ssClient.getSubsessionList() || []);
+        setUnassignedUsers(ssClient.getUnassignedUserList() || []);
+      } catch { /* ignore */ }
+    },
+    [ssClient]
+  );
+
+  const handleMoveUser = useCallback(
+    async (userId: number, subsessionId: string) => {
+      if (!ssClient) return;
+      await ssClient.moveUserToSubsession(userId, subsessionId);
+    },
+    [ssClient]
+  );
+
+  const handleMoveBackToMain = useCallback(
+    async (userId: number) => {
+      if (!ssClient) return;
+      await ssClient.moveBackToMainSession(userId);
+    },
+    [ssClient]
+  );
+
+  const handleCloseAllSubsessions = useCallback(async () => {
+    if (!ssClient) return;
+    await ssClient.closeAllSubsessions();
+  }, [ssClient]);
+
+  const handleBroadcast = useCallback(
+    async (message: string) => {
+      if (!ssClient) return;
+      await ssClient.broadcast(message);
+    },
+    [ssClient]
+  );
+
+  const handleJoinSubsession = useCallback(
+    async (subsessionId: string) => {
+      if (!ssClient) return;
+      await ssClient.joinSubsession(subsessionId);
+      setSsInvite(null);
+    },
+    [ssClient]
+  );
+
+  const handleLeaveSubsession = useCallback(async () => {
+    if (!ssClient) return;
+    await ssClient.leaveSubsession();
+  }, [ssClient]);
+
+  const handleAskForHelp = useCallback(async () => {
+    if (!ssClient) return;
+    await ssClient.askForHelp();
+  }, [ssClient]);
+
+  // Derive current user's subsession status and info
+  let userSubsessionStatus = 'initial';
+  let currentSubsession: { subsessionName: string; subsessionId: string } | null =
+    null;
+  try {
+    if (ssClient) {
+      userSubsessionStatus = ssClient.getUserStatus() || 'initial';
+      const cur = ssClient.getCurrentSubsession();
+      if (cur?.subsessionId) currentSubsession = cur;
+    }
+  } catch {
+    // not available
+  }
+
   // Get current user ID for chat
   let currentUserId = 0;
   try {
@@ -745,7 +953,7 @@ export default function VideoConference({
       <div className='flex-1 overflow-hidden flex'>
         <div
           className={`${
-            isChatOpen || isParticipantsOpen || isCaptionsOpen
+            isChatOpen || isParticipantsOpen || isCaptionsOpen || isBreakoutRoomsOpen
               ? 'w-[70%]'
               : 'w-full'
           } transition-all duration-300 flex flex-col relative`}
@@ -756,6 +964,39 @@ export default function VideoConference({
             reactions={reactions}
             onExpire={handleReactionExpire}
           />
+          {/* Subsession invite banner */}
+          {ssInvite && (
+            <div className='bg-teal-700 text-white text-center py-2 text-sm font-medium flex items-center justify-center gap-3 z-20'>
+              You are invited to join &quot;{ssInvite.subsessionName}&quot;
+              <button
+                onClick={() => handleJoinSubsession(ssInvite.subsessionId)}
+                className='px-3 py-1 bg-teal-500 rounded hover:bg-teal-400 transition-colors text-xs font-semibold'
+              >
+                Join
+              </button>
+              <button
+                onClick={() => setSsInvite(null)}
+                className='px-3 py-1 bg-gray-600 rounded hover:bg-gray-500 transition-colors text-xs'
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {/* Subsession broadcast message banner */}
+          {ssBroadcastMsg && (
+            <div className='bg-yellow-700 text-white text-center py-1.5 text-sm flex items-center justify-center gap-2 z-20'>
+              <span className='font-medium'>Host:</span> {ssBroadcastMsg}
+            </div>
+          )}
+
+          {/* Closing countdown banner */}
+          {ssClosingCountdown !== null && (
+            <div className='bg-red-700 text-white text-center py-1.5 text-sm font-medium z-20'>
+              Breakout rooms closing in {Math.floor(ssClosingCountdown / 60)}:{(ssClosingCountdown % 60).toString().padStart(2, '0')}
+            </div>
+          )}
+
           {/* Recording indicator banner */}
           {recordingStatus !== 'Stopped' && (
             <div
@@ -829,8 +1070,41 @@ export default function VideoConference({
           </div>
         </div>
         {/* Right side panel(s) */}
-        {(isChatOpen || isParticipantsOpen || isCaptionsOpen) && (
+        {(isChatOpen || isParticipantsOpen || isCaptionsOpen || isBreakoutRoomsOpen) && (
           <div className='w-[30%] min-w-[280px] flex flex-col'>
+            {isBreakoutRoomsOpen && (
+              <div
+                className={
+                  isChatOpen || isParticipantsOpen || isCaptionsOpen
+                    ? 'h-[50%] border-b border-gray-700'
+                    : 'flex-1'
+                }
+              >
+                <BreakoutRoomPanel
+                  isHost={amHost}
+                  subsessionStatus={subsessionStatus}
+                  subsessions={subsessions}
+                  unassignedUsers={unassignedUsers}
+                  helpRequests={helpRequests}
+                  broadcastMsg={ssBroadcastMsg}
+                  closingCountdown={ssClosingCountdown}
+                  roomCountdown={ssRoomCountdown}
+                  userSubsessionStatus={userSubsessionStatus}
+                  currentSubsession={currentSubsession}
+                  onClose={toggleBreakoutRooms}
+                  onCreateSubsessions={handleCreateSubsessions}
+                  onOpenSubsessions={handleOpenSubsessions}
+                  onAssignUser={handleAssignUser}
+                  onMoveUser={handleMoveUser}
+                  onMoveBackToMain={handleMoveBackToMain}
+                  onCloseAll={handleCloseAllSubsessions}
+                  onBroadcast={handleBroadcast}
+                  onJoinSubsession={handleJoinSubsession}
+                  onLeaveSubsession={handleLeaveSubsession}
+                  onAskForHelp={handleAskForHelp}
+                />
+              </div>
+            )}
             {isParticipantsOpen && (
               <div
                 className={
@@ -918,6 +1192,9 @@ export default function VideoConference({
         summaryStatus={summaryStatus}
         isSummaryEnabled={isSummaryEnabled}
         onReact={handleReact}
+        onToggleBreakoutRooms={toggleBreakoutRooms}
+        isBreakoutRoomsOpen={isBreakoutRoomsOpen}
+        subsessionStatus={subsessionStatus}
       />
     </div>
   );
